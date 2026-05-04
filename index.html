@@ -1,0 +1,1511 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Grace Frame</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        * { font-family: 'Noto Sans KR', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; height: 100dvh; width: 100vw; overflow: hidden; user-select: none; }
+
+        .screen { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; flex-direction: column; overflow-y: auto; }
+        .screen.active { display: flex; }
+
+        .gradient-bg { background: linear-gradient(135deg, #fdf2f8 0%, #ede9fe 50%, #dbeafe 100%); }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #ec4899, #a855f7);
+            color: white; border: none; padding: 16px 40px; border-radius: 9999px;
+            font-size: 18px; font-weight: 700; cursor: pointer;
+            transition: all 0.25s; box-shadow: 0 4px 20px rgba(168, 85, 247, 0.35);
+        }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 6px 25px rgba(168, 85, 247, 0.45); }
+        .btn-primary:active { transform: scale(0.97); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        .btn-secondary {
+            background: white; color: #6b7280; border: 2px solid #e5e7eb;
+            padding: 12px 28px; border-radius: 9999px; font-size: 15px; font-weight: 600;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .btn-secondary:hover { border-color: #a855f7; color: #a855f7; }
+
+        .btn-icon {
+            width: 48px; height: 48px; border-radius: 50%; border: none;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s; font-size: 20px;
+        }
+
+        /* 카메라 프리뷰: 4:3 비율로 고정, cover로 꽉 채움 */
+        #camera-video-wrap {
+            position: relative; width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            overflow: hidden;
+        }
+        video {
+            position: absolute;
+            width: 100%; height: 100%;
+            object-fit: cover;    /* 프리뷰도 꽉 차게 */
+        }
+        video.mirrored { transform: scaleX(-1); }
+
+        /* 전/후면 전환 버튼 */
+        #btn-flip-camera {
+            position: absolute; bottom: 16px; right: 16px; z-index: 10;
+            width: 46px; height: 46px; border-radius: 50%; border: none;
+            background: rgba(255,255,255,0.18); backdrop-filter: blur(10px);
+            color: white; font-size: 22px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s; box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+        }
+        #btn-flip-camera:active { transform: scale(0.9); background: rgba(255,255,255,0.3); }
+
+        .frame-card {
+            border: 3px solid transparent; border-radius: 16px; cursor: pointer;
+            transition: all 0.25s; overflow: hidden; background: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+        }
+        .frame-card:hover { border-color: #d8b4fe; transform: translateY(-3px); box-shadow: 0 8px 25px rgba(0,0,0,0.1); }
+        .frame-card.selected { border-color: #a855f7; box-shadow: 0 0 0 3px rgba(168,85,247,0.2), 0 8px 25px rgba(0,0,0,0.1); }
+
+        .flash-overlay { position: fixed; inset: 0; background: white; pointer-events: none; z-index: 9999; opacity: 0; }
+        .flash-active { animation: flashAnim 0.5s ease-out forwards; }
+        @keyframes flashAnim { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+        .countdown-number {
+            font-size: min(30vw, 180px); font-weight: 900; color: white;
+            text-shadow: 0 0 40px rgba(0,0,0,0.5), 0 0 80px rgba(236,72,153,0.5);
+            animation: countPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        @keyframes countPop { 0% { transform: scale(3); opacity: 0; } 50% { opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+
+        .photo-slot {
+            flex-shrink: 0; border-radius: 6px; overflow: hidden;
+            border: 2px dashed rgba(255,255,255,0.35);
+            transition: all 0.3s; background: rgba(255,255,255,0.08);
+        }
+        .photo-slot.active { border-color: #ec4899; border-style: solid; animation: slotPulse 1.5s infinite; }
+        .photo-slot.captured { border-color: #34d399; border-style: solid; }
+        .photo-slot img { width: 100%; height: 100%; object-fit: cover; }
+        @keyframes slotPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(236,72,153,0.5); } 50% { box-shadow: 0 0 0 6px rgba(236,72,153,0); } }
+
+        .fade-in { animation: fadeIn 0.6s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+
+        .admin-card {
+            background: white; border-radius: 20px; padding: 28px;
+            box-shadow: 0 4px 25px rgba(0,0,0,0.07); width: 100%; max-width: 520px;
+        }
+        .admin-input {
+            width: 100%; padding: 14px 18px; border: 2px solid #e5e7eb;
+            border-radius: 14px; font-size: 16px; outline: none; transition: border-color 0.2s;
+        }
+        .admin-input:focus { border-color: #a855f7; }
+
+        .frame-admin-item {
+            display: flex; align-items: center; gap: 14px; padding: 10px;
+            border-radius: 12px; background: #f9fafb; margin-bottom: 10px;
+        }
+        .frame-admin-item img { width: 90px; height: 65px; object-fit: cover; border-radius: 8px; }
+
+        .title-gradient {
+            background: linear-gradient(135deg, #ec4899, #a855f7);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .camera-overlay-status {
+            position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.6); backdrop-filter: blur(8px);
+            color: white; padding: 8px 20px; border-radius: 24px;
+            font-size: 14px; font-weight: 600; z-index: 5; white-space: nowrap;
+        }
+
+        .result-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; padding: 10px 12px; }
+
+        @media (max-width: 400px) { .btn-primary { padding: 14px 28px; font-size: 16px; } }
+
+        /* ── 결과 화면: 뷰포트 안에 스트립 전체가 다 보이도록 ── */
+        #screen-result { overflow: hidden !important; }
+
+        #result-inner {
+            position: absolute; inset: 0;          /* 뷰포트 꽉 채우기 */
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: flex-start;
+            padding: 12px 12px 8px;
+            overflow: hidden;
+        }
+        #strip-preview-wrap {
+            flex: 1 1 0;          /* 남은 공간 전부 차지 */
+            min-height: 0;        /* flex shrink 허용 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+        }
+        #strip-preview-img {
+            max-width: 100%;
+            max-height: 100%;    /* wrap 높이 초과 금지 */
+            width: auto;
+            height: auto;
+            display: block;
+            border-radius: 8px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+        }
+        .result-title {
+            font-size: 16px; font-weight: 700; color: #4b5563;
+            margin-bottom: 8px; flex-shrink: 0;
+        }
+
+        .layout-card {
+            border: 3px solid transparent; border-radius: 14px; cursor: pointer;
+            transition: all 0.25s; background: white; padding: 12px 8px;
+            text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            display: flex; flex-direction: column; align-items: center; gap: 8px;
+        }
+        .layout-card:hover { border-color: #d8b4fe; transform: translateY(-2px); }
+        .layout-card.selected { border-color: #a855f7; box-shadow: 0 0 0 3px rgba(168,85,247,0.2), 0 4px 16px rgba(0,0,0,0.08); }
+        .layout-preview { height: 58px; display: flex; align-items: center; justify-content: center; }
+        .layout-label { font-size: 12px; font-weight: 700; color: #555; }
+
+        /* ── 설정 버튼 (타이머/장수) ── */
+        .setting-btn {
+            padding: 8px 14px; border-radius: 10px; border: 2px solid #e5e7eb;
+            font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.2s;
+            background: white; color: #6b7280;
+        }
+        .setting-btn:hover { border-color: #d8b4fe; color: #a855f7; }
+        .setting-btn.active {
+            border-color: #a855f7;
+            background: linear-gradient(135deg, #ec4899, #a855f7);
+            color: white; box-shadow: 0 2px 10px rgba(168,85,247,0.3);
+        }
+
+        /* ── 가로/세로 촬영 방향 토글 ── */
+        .orient-toggle {
+            display: flex; gap: 6px; background: rgba(0,0,0,0.35);
+            backdrop-filter: blur(8px); border-radius: 20px; padding: 4px;
+        }
+        .orient-btn {
+            padding: 6px 14px; border-radius: 16px; border: none; cursor: pointer;
+            font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.55);
+            background: transparent; transition: all 0.2s; white-space: nowrap;
+        }
+        .orient-btn.active {
+            background: linear-gradient(135deg,#ec4899,#a855f7);
+            color: white; box-shadow: 0 2px 8px rgba(168,85,247,0.4);
+        }
+
+        /* ── 사진 선택 화면 ── */
+        .photo-select-grid {
+            display: grid; grid-template-columns: repeat(2, 1fr);
+            gap: 10px; padding: 12px; align-content: start;
+        }
+        .photo-select-item {
+            position: relative; border-radius: 14px; overflow: hidden;
+            border: 3px solid #e5e7eb; cursor: pointer; transition: all 0.2s;
+            background: #1a1a1a; aspect-ratio: 4 / 3;
+        }
+        .photo-select-item:active { transform: scale(0.97); }
+        .photo-select-item.selected {
+            border-color: #a855f7;
+            box-shadow: 0 0 0 3px rgba(168,85,247,0.25);
+        }
+        .photo-select-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .select-badge {
+            position: absolute; top: 7px; right: 7px; width: 28px; height: 28px;
+            background: linear-gradient(135deg, #ec4899, #a855f7); border-radius: 50%;
+            color: white; font-size: 13px; font-weight: 900;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 2px 8px rgba(168,85,247,0.5); z-index: 2;
+        }
+        .select-dim {
+            position: absolute; inset: 0; background: rgba(0,0,0,0.32);
+            transition: opacity 0.2s; z-index: 1;
+        }
+        .photo-select-item.selected .select-dim { opacity: 0; }
+    </style>
+</head>
+<body>
+
+<!-- ==================== WELCOME SCREEN ==================== -->
+<div id="screen-welcome" class="screen active gradient-bg justify-center items-center">
+    <div class="text-center fade-in px-8">
+        <div class="mb-5 text-7xl animate-bounce" style="animation-duration:2s">📸</div>
+        <h1 id="main-title" class="text-5xl md:text-6xl font-black title-gradient mb-3 leading-tight">Grace Frame</h1>
+        <p class="text-gray-400 mb-12 text-lg tracking-wide">특별한 순간을 담아보세요 ✨</p>
+        <button onclick="showFrameSelection()" class="btn-primary text-xl px-12 py-5">시작하기</button>
+    </div>
+    <button onclick="showAdminLogin()" class="btn-icon absolute bottom-5 right-5 bg-white/40 hover:bg-white/70 text-gray-400 hover:text-gray-600 backdrop-blur-sm" title="관리자">⚙️</button>
+    <div class="absolute bottom-5 left-5 text-xs text-gray-300">v2.0</div>
+</div>
+
+<!-- ==================== FRAME SELECTION SCREEN ==================== -->
+<div id="screen-frames" class="screen gradient-bg flex-col">
+    <div class="flex items-center gap-3 p-4 bg-white/60 backdrop-blur-md border-b border-white/50">
+        <button onclick="goHome()" class="btn-icon bg-white/70 hover:bg-white text-gray-500 text-lg shadow-sm">←</button>
+        <h2 class="text-lg font-bold text-gray-700 flex-1">프레임 선택</h2>
+    </div>
+    <div class="flex-1 overflow-y-auto p-4 pb-28">
+        <p class="text-sm font-semibold text-gray-500 mb-2 text-center">레이아웃 선택</p>
+        <div class="grid grid-cols-2 gap-3 mb-5">
+            <div id="layout-strip" class="layout-card selected" onclick="selectLayout('strip')">
+                <div class="layout-preview">
+                    <div style="display:flex;gap:5px;align-items:flex-end;">
+                        <div style="display:flex;flex-direction:column;gap:3px;">
+                            <div style="width:4px;height:4px;background:#c084fc;border-radius:1px;opacity:0.5;margin:0 auto 2px"></div>
+                            <div style="width:36px;height:10px;background:#e9d5ff;border-radius:2px;"></div>
+                            <div style="width:36px;height:10px;background:#e9d5ff;border-radius:2px;"></div>
+                            <div style="width:36px;height:10px;background:#e9d5ff;border-radius:2px;"></div>
+                            <div style="width:36px;height:10px;background:#e9d5ff;border-radius:2px;"></div>
+                            <div style="width:16px;height:3px;background:#c084fc;border-radius:1px;opacity:0.3;margin:2px auto 0;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="layout-label">세로형 스트립</div>
+            </div>
+            <div id="layout-grid" class="layout-card" onclick="selectLayout('grid')">
+                <div class="layout-preview">
+                    <div style="display:flex;flex-direction:column;gap:3px;">
+                        <div style="width:32px;height:4px;background:#c084fc;border-radius:2px;opacity:0.5;margin:0 auto 2px"></div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;width:38px">
+                            <div style="height:18px;background:#e9d5ff;border-radius:3px;"></div>
+                            <div style="height:18px;background:#e9d5ff;border-radius:3px;"></div>
+                            <div style="height:18px;background:#e9d5ff;border-radius:3px;"></div>
+                            <div style="height:18px;background:#e9d5ff;border-radius:3px;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="layout-label">2×2 격자형</div>
+            </div>
+        </div>
+        <p class="text-sm text-gray-400 mb-3 text-center">원하는 프레임을 선택해주세요</p>
+        <div id="frame-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-3"></div>
+    </div>
+    <div class="fixed bottom-0 left-0 right-0 p-4 bg-white/80 backdrop-blur-md border-t border-white/50">
+        <button id="btn-go-camera" onclick="goToCamera()" class="btn-primary w-full py-4 text-lg" disabled>
+            프레임을 선택해주세요
+        </button>
+    </div>
+</div>
+
+<!-- ==================== CAMERA SCREEN ==================== -->
+<div id="screen-camera" class="screen flex-col bg-black">
+    <div class="flex-1 relative flex items-center justify-center overflow-hidden bg-black">
+        <div id="camera-video-wrap">
+            <video id="camera-video" autoplay playsinline class="mirrored"></video>
+            <div id="countdown-display" class="absolute inset-0 flex items-center justify-center pointer-events-none z-10" style="display:none"></div>
+            <div id="camera-status" class="camera-overlay-status">카메라 준비 중...</div>
+            <button id="btn-flip-camera" onclick="flipCamera()" title="카메라 전환">🔄</button>
+        </div>
+    </div>
+    <div class="bg-gray-900 py-3 px-4">
+        <!-- 가로/세로 촬영 방향 토글 -->
+        <div class="flex justify-center mb-2">
+            <div class="orient-toggle">
+                <button id="orient-landscape" class="orient-btn active" onclick="setOrient('landscape')">📷 가로</button>
+                <button id="orient-portrait"  class="orient-btn"        onclick="setOrient('portrait')">📱 세로</button>
+            </div>
+        </div>
+        <div class="flex items-center justify-center gap-2 mb-2 overflow-x-auto"
+             id="photo-slots-row" style="min-height:48px;padding:0 2px;"></div>
+        <button id="btn-start-capture" onclick="startCapture()" class="btn-primary w-full py-4 text-lg">
+            📸 촬영 시작
+        </button>
+    </div>
+</div>
+
+<!-- ==================== PHOTO SELECT SCREEN ==================== -->
+<div id="screen-photo-select" class="screen gradient-bg flex-col">
+    <div class="flex items-center gap-3 p-4 bg-white/60 backdrop-blur-md border-b border-white/50 flex-shrink-0">
+        <h2 class="text-lg font-bold text-gray-700 flex-1 text-center">사진 선택</h2>
+        <span id="select-count-display" class="text-sm font-bold" style="color:#a855f7">0/4 선택</span>
+    </div>
+    <p class="text-sm text-gray-500 text-center pt-3 px-4 pb-1 flex-shrink-0">
+        <span id="photo-select-desc"></span> <strong id="required-photo-count-label" style="color:#a855f7">4장</strong>을 선택하세요<br>
+        <span class="text-xs text-gray-400">선택한 순서대로 배치됩니다</span>
+    </p>
+    <div class="flex-1 overflow-y-auto">
+        <div class="photo-select-grid" id="photo-select-grid"></div>
+    </div>
+    <div class="flex-shrink-0 p-4 bg-white/80 backdrop-blur-md border-t border-white/50 flex gap-3">
+        <button onclick="retakePhotos()" class="btn-secondary py-3 px-5 text-sm flex-shrink-0">📷 다시 찍기</button>
+        <button id="btn-make-strip" onclick="makeStripFromSelected()" class="btn-primary flex-1 py-3 text-base" disabled>
+            4장을 선택해주세요
+        </button>
+    </div>
+</div>
+
+<!-- ==================== RESULT SCREEN ==================== -->
+<div id="screen-result" class="screen gradient-bg">
+    <div id="result-inner">
+        <p class="result-title">촬영 완료! 🎉</p>
+        <div id="strip-preview-wrap">
+            <img id="strip-preview-img" src="" alt="포토스트립">
+        </div>
+        <div class="result-actions w-full max-w-md flex-shrink-0">
+            <button onclick="downloadStrip()" class="btn-primary flex-1 min-w-[100px] py-3 text-sm">💾 저장</button>
+            <button onclick="printStrip()" class="btn-primary flex-1 min-w-[100px] py-3 text-sm" style="background:linear-gradient(135deg,#3b82f6,#6366f1)">🖨️ 프린트</button>
+            <button onclick="retakePhotos()" class="btn-secondary flex-1 min-w-[100px] py-3 text-sm">📷 다시 찍기</button>
+            <button onclick="goHome()" class="btn-secondary flex-1 min-w-[100px] py-3 text-sm">🏠 처음으로</button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== ADMIN LOGIN SCREEN ==================== -->
+<div id="screen-admin-login" class="screen gradient-bg justify-center items-center p-6">
+    <div class="admin-card text-center fade-in">
+        <div class="text-4xl mb-4">🔐</div>
+        <h2 class="text-xl font-bold text-gray-700 mb-2">관리자 로그인</h2>
+        <p class="text-sm text-gray-400 mb-6">관리자 비밀번호를 입력하세요</p>
+        <input id="admin-pw-input" type="password" class="admin-input mb-4 text-center text-lg tracking-widest"
+               placeholder="비밀번호 (기본: 0000)" maxlength="20"
+               onkeydown="if(event.key==='Enter') adminLogin()">
+        <div id="admin-login-error" class="text-red-400 text-sm mb-3" style="display:none">비밀번호가 틀렸습니다</div>
+        <div class="flex gap-3">
+            <button onclick="goHome()" class="btn-secondary flex-1">취소</button>
+            <button onclick="adminLogin()" class="btn-primary flex-1">로그인</button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== ADMIN PANEL SCREEN ==================== -->
+<div id="screen-admin" class="screen gradient-bg flex-col">
+    <div class="flex items-center gap-3 p-4 bg-white/60 backdrop-blur-md border-b border-white/50">
+        <button onclick="goHome()" class="btn-icon bg-white/70 hover:bg-white text-gray-500 text-lg shadow-sm">←</button>
+        <h2 class="text-lg font-bold text-gray-700 flex-1">관리자 설정</h2>
+        <button onclick="goHome()" class="text-sm text-gray-400 hover:text-gray-600 font-medium">나가기</button>
+    </div>
+    <div class="flex-1 overflow-y-auto p-4 space-y-5 pb-10">
+
+        <!-- Title Setting -->
+        <div class="admin-card">
+            <h3 class="text-base font-bold text-gray-700 mb-1">📝 메인 타이틀</h3>
+            <p class="text-xs text-gray-400 mb-3">시작 화면에 표시되는 큰 제목입니다</p>
+            <div class="flex gap-2">
+                <input id="admin-title-input" type="text" class="admin-input flex-1" placeholder="Grace Frame" maxlength="20">
+                <button onclick="saveTitle()" class="btn-primary px-6 py-3 text-sm whitespace-nowrap">저장</button>
+            </div>
+            <div id="title-save-msg" class="text-green-500 text-xs mt-2" style="display:none">✅ 저장되었습니다!</div>
+        </div>
+
+        <!-- ★ 촬영 설정 -->
+        <div class="admin-card">
+            <h3 class="text-base font-bold text-gray-700 mb-1">⏱️ 촬영 설정</h3>
+            <p class="text-xs text-gray-400 mb-4">카운트다운 타이머와 촬영 장수를 설정합니다</p>
+
+            <!-- 타이머 -->
+            <div class="mb-5">
+                <p class="text-sm font-semibold text-gray-600 mb-2">카운트다운 타이머</p>
+                <div class="flex gap-2 flex-wrap mb-2">
+                    <button data-secs="1"  onclick="setTimer(1)"  class="setting-btn timer-btn">1초</button>
+                    <button data-secs="3"  onclick="setTimer(3)"  class="setting-btn timer-btn">3초</button>
+                    <button data-secs="5"  onclick="setTimer(5)"  class="setting-btn timer-btn">5초</button>
+                    <button data-secs="10" onclick="setTimer(10)" class="setting-btn timer-btn">10초</button>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-gray-400 whitespace-nowrap">직접 입력</span>
+                    <input id="timer-custom" type="number" min="1" max="30"
+                           class="admin-input text-center" style="flex:1;padding:8px 10px;font-size:14px;" placeholder="1~30초">
+                    <button onclick="setTimerCustom()" class="btn-primary text-sm px-4 py-2 whitespace-nowrap">적용</button>
+                </div>
+                <div id="timer-save-msg" class="text-green-500 text-xs mt-1" style="display:none"></div>
+            </div>
+
+            <!-- 촬영 장수 -->
+            <div>
+                <p class="text-sm font-semibold text-gray-600 mb-2">촬영 장수</p>
+                <div class="flex gap-2 flex-wrap mb-2">
+                    <button data-count="3"  onclick="setShootCount(3)"  class="setting-btn count-btn">3장</button>
+                    <button data-count="4"  onclick="setShootCount(4)"  class="setting-btn count-btn">4장</button>
+                    <button data-count="6"  onclick="setShootCount(6)"  class="setting-btn count-btn">6장</button>
+                    <button data-count="8"  onclick="setShootCount(8)"  class="setting-btn count-btn">8장</button>
+                    <button data-count="10" onclick="setShootCount(10)" class="setting-btn count-btn">10장</button>
+                </div>
+                <p class="text-xs text-gray-400">세로형은 3컷, 2×2 격자형은 4컷으로 완성됩니다. 더 많이 찍으면 마음에 드는 사진을 직접 골라 배치할 수 있어요</p>
+                <div id="count-save-msg" class="text-green-500 text-xs mt-1" style="display:none"></div>
+            </div>
+        </div>
+
+        <!-- Frame Management -->
+        <div class="admin-card">
+            <h3 class="text-base font-bold text-gray-700 mb-1">🖼️ 프레임 관리</h3>
+            <p class="text-xs text-gray-400 mb-2">기본 프레임은 유지하고, 필요한 프레임은 나중에 추가할 수 있습니다<br>세로형 이미지(2:3 비율)를 권장합니다</p>
+            <p class="text-xs font-semibold mb-3" style="color:#a855f7">저작권 문제되지 않는 사진으로 사용</p>
+            <label class="block w-full text-center py-4 border-2 border-dashed border-purple-200 rounded-xl bg-purple-50/50 cursor-pointer hover:border-purple-400 hover:bg-purple-50 transition-all mb-4">
+                <span class="text-purple-500 font-semibold">+ 나중에 프레임 추가</span>
+                <input type="file" accept="image/*" multiple class="hidden" onchange="handleFrameUpload(event)">
+            </label>
+            <div id="admin-frame-list"></div>
+            <div id="storage-info" class="text-xs text-gray-300 mt-2 text-right"></div>
+        </div>
+
+        <!-- Password Change -->
+        <div class="admin-card">
+            <h3 class="text-base font-bold text-gray-700 mb-1">🔑 비밀번호 변경</h3>
+            <p class="text-xs text-gray-400 mb-3">관리자 로그인 비밀번호를 변경합니다</p>
+            <div class="flex gap-2">
+                <input id="admin-new-pw" type="password" class="admin-input flex-1" placeholder="새 비밀번호" maxlength="20">
+                <button onclick="changePassword()" class="btn-primary px-6 py-3 text-sm whitespace-nowrap">변경</button>
+            </div>
+            <div id="pw-change-msg" class="text-green-500 text-xs mt-2" style="display:none"></div>
+        </div>
+
+        <!-- Reset -->
+        <div class="admin-card">
+            <h3 class="text-base font-bold text-gray-700 mb-1">⚠️ 초기화</h3>
+            <p class="text-xs text-gray-400 mb-3">모든 설정과 프레임을 초기 상태로 되돌립니다</p>
+            <button onclick="resetAll()" class="w-full py-3 rounded-xl border-2 border-red-200 text-red-400 font-semibold hover:bg-red-50 hover:border-red-400 hover:text-red-500 transition-all text-sm">
+                전체 초기화
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== FLASH OVERLAY ==================== -->
+<div id="flash-overlay" class="flash-overlay"></div>
+<div id="print-area" style="display:none"></div>
+
+<!-- ==================== JAVASCRIPT ==================== -->
+<script>
+// ============================
+//  STATE
+// ============================
+let appTitle      = sanitizePlainText(localStorage.getItem('appTitle') || 'Grace Frame', 20) || 'Grace Frame';
+let customFrames  = loadStoredFrames();
+let adminPw       = localStorage.getItem('adminPw')      || '0000';
+let timerSeconds  = getStoredNumber('timerSeconds', 3, 1, 30);
+let shootCount    = getStoredNumber('shootCount', 3, 3, 10, [3, 4, 6, 8, 10]);
+
+let selectedFrameId      = null;
+let selectedLayout       = 'strip';
+let capturedPhotos       = [];   // 촬영된 사진 (최대 shootCount장)
+let allCapturedPhotos    = [];   // 사진 선택 화면용 전체 보관
+let selectedPhotoIndices = [];   // 선택 순서
+let currentShot  = 0;
+let mediaStream  = null;
+let isCapturing  = false;
+let stripDataUrl = null;
+let facingMode   = 'user';       // 'user'=전면, 'environment'=후면
+let photoOrient  = 'landscape';  // 'landscape'=가로(4:3), 'portrait'=세로(3:4)
+const STRIP_PHOTO_COUNT = 3;
+const GRID_PHOTO_COUNT = 4;
+
+const DEFAULT_FRAMES = [
+    { id: 'df-white',    name: '클래식 화이트', colors: ['#ffffff','#f5f5f5'],    textColor: '#333' },
+    { id: 'df-pink',     name: '로즈 핑크',     colors: ['#fff0f5','#ffc0cb'],    textColor: '#c71585' },
+    { id: 'df-lavender', name: '라벤더',         colors: ['#f5f0ff','#d8b4fe'],    textColor: '#6d28d9' },
+    { id: 'df-sky',      name: '스카이 블루',    colors: ['#f0f8ff','#7ec8e3'],    textColor: '#1e40af' },
+    { id: 'df-mint',     name: '민트 그린',      colors: ['#f0fff4','#86efac'],    textColor: '#065f46' },
+    { id: 'df-peach',    name: '피치',           colors: ['#fff7ed','#fdba74'],    textColor: '#c2410c' },
+    { id: 'df-dark',     name: '미드나잇',       colors: ['#1e1b4b','#312e81'],    textColor: '#e0e7ff' },
+    { id: 'df-retro',    name: '레트로 옐로우',  colors: ['#fefce8','#fde047'],    textColor: '#854d0e' },
+];
+
+// ============================
+//  UTILITIES
+// ============================
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function loadImage(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+    });
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+}
+
+// object-fit: cover — 이미 4:3으로 크롭된 사진을 슬롯에 꽉 채움
+function drawCover(ctx, img, x, y, w, h) {
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    if (!iw || !ih) return;
+    const ir = iw / ih, sr = w / h;
+    let sx, sy, sw, sh;
+    if (ir > sr) { sh = ih; sw = ih * sr; sx = (iw - sw) / 2; sy = 0; }
+    else         { sw = iw; sh = iw / sr; sx = 0; sy = (ih - sh) / 2; }
+    ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+}
+
+// object-fit: contain — letterbox (현재 미사용, 필요 시 대체)
+function drawContain(ctx, img, x, y, w, h) {
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    if (!iw || !ih) return;
+    const ir = iw / ih, sr = w / h;
+    let dw, dh, dx, dy;
+    if (ir > sr) { dw = w; dh = w / ir; dx = x; dy = y + (h - dh) / 2; }
+    else         { dh = h; dw = h * ir; dy = y; dx = x + (w - dw) / 2; }
+    ctx.drawImage(img, dx, dy, dw, dh);
+}
+
+function playBeep(freq = 880, duration = 150) {
+    try {
+        const ac = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ac.createOscillator();
+        const gain = ac.createGain();
+        osc.connect(gain); gain.connect(ac.destination);
+        osc.frequency.value = freq; osc.type = 'sine';
+        gain.gain.setValueAtTime(0.12, ac.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + duration / 1000);
+        osc.start(ac.currentTime); osc.stop(ac.currentTime + duration / 1000);
+        setTimeout(() => ac.close(), duration + 100);
+    } catch(e) {}
+}
+
+function triggerFlash() {
+    const el = document.getElementById('flash-overlay');
+    el.classList.remove('flash-active');
+    void el.offsetWidth;
+    el.classList.add('flash-active');
+}
+
+function resizeImage(file, maxDim) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const c = document.createElement('canvas');
+                let w = img.width, h = img.height;
+                if (Math.max(w, h) > maxDim) {
+                    if (w > h) { h = h * maxDim / w; w = maxDim; }
+                    else       { w = w * maxDim / h; h = maxDim; }
+                }
+                c.width = w; c.height = h;
+                c.getContext('2d').drawImage(img, 0, 0, w, h);
+                resolve(c.toDataURL('image/jpeg', 0.75));
+            };
+            img.onerror = () => reject(new Error('이미지 로드 실패: ' + file.name));
+            img.src = e.target.result;
+        };
+        reader.onerror = () => reject(new Error('파일 읽기 실패: ' + file.name));
+        reader.readAsDataURL(file);
+    });
+}
+
+function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+function showMsg(id, text, duration = 2500) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.style.display = 'block';
+    clearTimeout(el._t);
+    el._t = setTimeout(() => { el.style.display = 'none'; }, duration);
+}
+
+function sanitizePlainText(value, maxLen = 40) {
+    return String(value || '').replace(/[\u0000-\u001f\u007f<>`"']/g, '').trim().substring(0, maxLen);
+}
+
+function escapeHtml(value) {
+    return String(value || '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+}
+
+function safeFileName(value) {
+    return sanitizePlainText(value, 40).replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_') || 'Grace_Frame';
+}
+
+function getStoredNumber(key, fallback, min, max, allowed = null) {
+    const n = parseInt(localStorage.getItem(key), 10);
+    if (!Number.isFinite(n) || n < min || n > max) return fallback;
+    if (allowed && !allowed.includes(n)) return fallback;
+    return n;
+}
+
+function isSafeFrameDataUrl(src) {
+    return /^data:image\/(?:jpeg|jpg|png|webp);base64,/i.test(String(src || ''));
+}
+
+function getOutputPhotoCount() {
+    return selectedLayout === 'grid' ? GRID_PHOTO_COUNT : STRIP_PHOTO_COUNT;
+}
+
+function getActualShootCount() {
+    return Math.max(shootCount, getOutputPhotoCount());
+}
+
+function loadStoredFrames() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem('customFrames') || '[]');
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .filter(f => f && isSafeFrameDataUrl(f.dataUrl))
+            .map(f => ({
+                id: sanitizePlainText(f.id, 40) || ('cf-' + Date.now()),
+                name: sanitizePlainText(f.name, 20) || '추가 프레임',
+                dataUrl: f.dataUrl
+            }));
+    } catch(e) {
+        return [];
+    }
+}
+
+// ============================
+//  SCREEN NAVIGATION
+// ============================
+function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    const el = document.getElementById('screen-' + id);
+    if (el) el.classList.add('active');
+}
+
+function goHome() {
+    stopCamera();
+    isCapturing = false;
+    showScreen('welcome');
+}
+
+// ============================
+//  TITLE
+// ============================
+function refreshTitle() {
+    document.getElementById('main-title').textContent = appTitle;
+    const inp = document.getElementById('admin-title-input');
+    if (inp) inp.value = appTitle;
+    document.title = appTitle;
+    // 사진 선택 화면 설명 텍스트
+    const desc = document.getElementById('photo-select-desc');
+    if (desc) desc.textContent = appTitle + '에 넣을 사진';
+    // 스트립 만들기 버튼 (활성 상태일 때만)
+    const makeBtn = document.getElementById('btn-make-strip');
+    if (makeBtn && !makeBtn.disabled) makeBtn.textContent = '✨ ' + appTitle + ' 만들기';
+    updatePhotoSelectCopy();
+}
+
+function updatePhotoSelectCopy() {
+    const required = getOutputPhotoCount();
+    const countDisplay = document.getElementById('select-count-display');
+    const requiredLabel = document.getElementById('required-photo-count-label');
+    const makeBtn = document.getElementById('btn-make-strip');
+    if (countDisplay) countDisplay.textContent = `${selectedPhotoIndices.length}/${required} 선택`;
+    if (requiredLabel) requiredLabel.textContent = `${required}장`;
+    if (makeBtn && makeBtn.disabled && selectedPhotoIndices.length === 0) makeBtn.textContent = `${required}장을 선택해주세요`;
+}
+
+function saveTitle() {
+    const val = sanitizePlainText(document.getElementById('admin-title-input').value, 20);
+    if (!val) { alert('타이틀을 입력해주세요'); return; }
+    appTitle = val;
+    localStorage.setItem('appTitle', appTitle);
+    refreshTitle();
+    showMsg('title-save-msg', '✅ 저장되었습니다!');
+}
+
+// ============================
+//  FRAME SELECTION
+// ============================
+function showFrameSelection() {
+    selectedFrameId = null;
+    selectedLayout = 'strip';
+    document.querySelectorAll('.layout-card').forEach(c => c.classList.remove('selected'));
+    document.getElementById('layout-strip').classList.add('selected');
+    renderFrameGrid();
+    updateGoButton();
+    showScreen('frames');
+}
+
+function selectLayout(type) {
+    selectedLayout = type;
+    document.querySelectorAll('.layout-card').forEach(c => c.classList.remove('selected'));
+    document.getElementById('layout-' + type).classList.add('selected');
+    renderFrameGrid();
+    updatePhotoSelectCopy();
+}
+
+function renderFrameGrid() {
+    const grid = document.getElementById('frame-grid');
+    grid.innerHTML = '';
+    DEFAULT_FRAMES.forEach(f => {
+        const card = document.createElement('div');
+        card.className = 'frame-card'; card.id = 'fcard-' + f.id;
+        card.onclick = () => selectFrame(f.id);
+        card.appendChild(createDefaultFramePreview(f));
+        card.appendChild(createFrameLabel(f.name));
+        grid.appendChild(card);
+    });
+    customFrames.forEach(f => {
+        const card = document.createElement('div');
+        card.className = 'frame-card'; card.id = 'fcard-' + f.id;
+        card.onclick = () => selectFrame(f.id);
+        const preview = document.createElement('div');
+        preview.style.cssText = 'height:130px;overflow:hidden;position:relative;';
+        const img = document.createElement('img');
+        img.src = f.dataUrl;
+        img.alt = f.name;
+        img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        preview.appendChild(img);
+        preview.appendChild(createPhotoShapeOverlay('rgba(255,255,255,0.86)', 'rgba(0,0,0,0.18)'));
+        const label = createFrameLabel(f.name);
+        card.appendChild(preview);
+        card.appendChild(label);
+        grid.appendChild(card);
+    });
+    if (selectedFrameId) {
+        const selected = document.getElementById('fcard-' + selectedFrameId);
+        if (selected) selected.classList.add('selected');
+    }
+}
+
+function createFrameLabel(name) {
+    const label = document.createElement('div');
+    label.style.cssText = 'padding:10px 8px 12px;text-align:center;font-size:13px;font-weight:600;color:#555';
+    label.textContent = name;
+    return label;
+}
+
+function createDefaultFramePreview(frame) {
+    const preview = document.createElement('div');
+    preview.style.cssText = `height:130px;background:linear-gradient(135deg,${frame.colors[0]},${frame.colors[1]});display:flex;align-items:center;justify-content:center;padding:12px;`;
+    const strip = document.createElement('div');
+    const isGrid = selectedLayout === 'grid';
+    strip.style.cssText = isGrid
+        ? 'width:84px;padding:8px;background:rgba(255,255,255,0.32);border-radius:7px;box-shadow:0 4px 16px rgba(0,0,0,0.08);'
+        : 'width:50px;padding:6px;background:rgba(255,255,255,0.32);border-radius:7px;box-shadow:0 4px 16px rgba(0,0,0,0.08);';
+
+    const mark = document.createElement('div');
+    mark.style.cssText = `height:5px;background:${frame.textColor};opacity:0.38;border-radius:2px;width:${isGrid ? '55%' : '70%'};margin:0 auto 5px;`;
+    strip.appendChild(mark);
+
+    const slots = document.createElement('div');
+    slots.style.cssText = isGrid
+        ? 'display:grid;grid-template-columns:1fr 1fr;gap:4px;'
+        : 'display:flex;flex-direction:column;gap:4px;';
+    const count = isGrid ? GRID_PHOTO_COUNT : STRIP_PHOTO_COUNT;
+    for (let i = 0; i < count; i++) {
+        const slot = document.createElement('div');
+        slot.style.cssText = isGrid
+            ? 'height:28px;background:rgba(255,255,255,0.88);border-radius:4px;'
+            : 'height:26px;background:rgba(255,255,255,0.88);border-radius:4px;';
+        slots.appendChild(slot);
+    }
+    strip.appendChild(slots);
+
+    const foot = document.createElement('div');
+    foot.style.cssText = `height:4px;background:${frame.textColor};opacity:0.18;border-radius:2px;width:${isGrid ? '45%' : '50%'};margin:6px auto 0;`;
+    strip.appendChild(foot);
+
+    preview.appendChild(strip);
+    return preview;
+}
+
+function createPhotoShapeOverlay(fill, stroke) {
+    const overlay = document.createElement('div');
+    const isGrid = selectedLayout === 'grid';
+    overlay.style.cssText = isGrid
+        ? 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:86px;padding:8px;border-radius:7px;background:rgba(0,0,0,0.18);'
+        : 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:50px;padding:6px;border-radius:7px;background:rgba(0,0,0,0.18);';
+    const mark = document.createElement('div');
+    mark.style.cssText = 'height:4px;background:rgba(255,255,255,0.7);border-radius:2px;width:60%;margin:0 auto 5px;';
+    overlay.appendChild(mark);
+    const slots = document.createElement('div');
+    slots.style.cssText = isGrid ? 'display:grid;grid-template-columns:1fr 1fr;gap:4px;' : 'display:flex;flex-direction:column;gap:4px;';
+    const count = isGrid ? GRID_PHOTO_COUNT : STRIP_PHOTO_COUNT;
+    for (let i = 0; i < count; i++) {
+        const slot = document.createElement('div');
+        slot.style.cssText = isGrid
+            ? `height:28px;background:${fill};border:1px solid ${stroke};border-radius:4px;`
+            : `height:26px;background:${fill};border:1px solid ${stroke};border-radius:4px;`;
+        slots.appendChild(slot);
+    }
+    overlay.appendChild(slots);
+    return overlay;
+}
+
+function selectFrame(id) {
+    selectedFrameId = id;
+    document.querySelectorAll('.frame-card').forEach(c => c.classList.remove('selected'));
+    const el = document.getElementById('fcard-' + id);
+    if (el) el.classList.add('selected');
+    updateGoButton();
+}
+
+function updateGoButton() {
+    const btn = document.getElementById('btn-go-camera');
+    if (selectedFrameId) {
+        btn.disabled = false; btn.textContent = '📸 촬영 시작';
+    } else {
+        btn.disabled = true; btn.textContent = '프레임을 선택해주세요';
+    }
+}
+
+// ============================
+//  CAMERA
+// ============================
+async function goToCamera() {
+    if (!selectedFrameId) return;
+    showScreen('camera');
+    capturedPhotos = new Array(getActualShootCount()).fill(null);
+    currentShot = 0; stripDataUrl = null; isCapturing = false;
+    updateSlots();
+    const btn = document.getElementById('btn-start-capture');
+    btn.style.display = 'block'; btn.disabled = true;
+    document.getElementById('camera-status').textContent = '카메라 준비 중...';
+    await startCameraStream();
+}
+
+async function startCameraStream() {
+    stopCamera();
+    const video = document.getElementById('camera-video');
+    video.className = facingMode === 'user' ? 'mirrored' : '';
+    const startBtn = document.getElementById('btn-start-capture');
+    startBtn.disabled = true;  // 스트림 시작 전 항상 비활성화
+    try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } },
+            audio: false
+        });
+        video.srcObject = mediaStream;
+        await video.play();
+        document.getElementById('camera-status').textContent = '준비 완료! 촬영 시작을 눌러주세요';
+        // isCapturing 중이면 재활성화하지 않음 (경쟁 조건 방어)
+        if (!isCapturing) startBtn.disabled = false;
+        document.getElementById('btn-flip-camera').style.display = 'flex';
+    } catch(err) {
+        document.getElementById('camera-status').textContent = '⚠️ 카메라를 사용할 수 없습니다';
+        console.error('Camera error:', err);
+        alert('카메라 오류: ' + err.message + '\n\n카메라 권한을 허용하고 HTTPS에서 실행해주세요.');
+    }
+}
+
+async function flipCamera() {
+    if (isCapturing) return;
+    facingMode = facingMode === 'user' ? 'environment' : 'user';
+    document.getElementById('btn-flip-camera').style.opacity = '0.5';
+    await startCameraStream();
+    document.getElementById('btn-flip-camera').style.opacity = '1';
+}
+
+function stopCamera() {
+    if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+    const video = document.getElementById('camera-video');
+    if (video) video.srcObject = null;
+}
+
+// 동적 포토슬롯 렌더링
+function updateSlots() {
+    const N = getActualShootCount();
+    const row = document.getElementById('photo-slots-row');
+    if (!row) return;
+
+    // 화면 폭에 맞게 슬롯 크기 자동 계산
+    const avail = Math.min(window.innerWidth, 480) - 24 - (N - 1) * 6;
+    let w = Math.max(36, Math.min(68, Math.floor(avail / N)));
+    const h = Math.round(w * 0.75);
+
+    row.innerHTML = '';
+    for (let i = 0; i < N; i++) {
+        const slot = document.createElement('div');
+        slot.id = 'ps-' + i;
+        slot.className = 'photo-slot';
+        slot.style.cssText = `width:${w}px;height:${h}px;`;
+
+        if (capturedPhotos[i]) {
+            slot.classList.add('captured');
+            const img = document.createElement('img');
+            img.src = capturedPhotos[i].src;
+            slot.appendChild(img);
+        } else if (i === currentShot && isCapturing) {
+            slot.classList.add('active');
+            slot.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#ec4899;font-size:10px;font-weight:900;">${i+1}</div>`;
+        } else {
+            slot.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:rgba(255,255,255,0.25);font-size:10px;font-weight:700;">${i+1}</div>`;
+        }
+        row.appendChild(slot);
+    }
+}
+
+// ============================
+//  CAPTURE SEQUENCE
+// ============================
+// BUG FIX: setOrient was defined in HTML onclick but never implemented
+function setOrient(orient) {
+    photoOrient = orient;
+    document.querySelectorAll('.orient-btn').forEach(btn => btn.classList.remove('active'));
+    const btn = document.getElementById('orient-' + orient);
+    if (btn) btn.classList.add('active');
+}
+
+async function startCapture() {
+    if (isCapturing) return;
+    isCapturing = true;
+    document.getElementById('btn-start-capture').style.display = 'none';
+    // BUG FIX: flip button should be visually disabled during capture
+    const flipBtn = document.getElementById('btn-flip-camera');
+    if (flipBtn) { flipBtn.style.opacity = '0.3'; flipBtn.style.pointerEvents = 'none'; }
+
+    const totalShots = getActualShootCount();
+    const outputPhotos = getOutputPhotoCount();
+
+    for (let i = 0; i < totalShots; i++) {
+        currentShot = i;
+        updateSlots();
+        document.getElementById('camera-status').textContent = `${i + 1}번째 사진 준비! 📸`;
+        await sleep(1200);
+
+        const cdEl = document.getElementById('countdown-display');
+        for (let c = timerSeconds; c >= 1; c--) {
+            cdEl.style.display = 'flex';
+            cdEl.innerHTML = `<span class="countdown-number">${c}</span>`;
+            playBeep(c === 1 ? 1300 : 880, 200);
+            await sleep(1000);
+        }
+        cdEl.style.display = 'none';
+
+        await capturePhoto(i);
+        triggerFlash();
+        playBeep(1600, 100);
+        await sleep(50);
+        playBeep(2000, 100);
+
+        updateSlots();
+        document.getElementById('camera-status').textContent = `${i + 1}/${totalShots} 촬영 완료! ✅`;
+        if (i < totalShots - 1) await sleep(1800);
+    }
+
+    document.getElementById('camera-status').textContent = '모든 사진 촬영 완료! 🎉';
+    isCapturing = false;
+    if (flipBtn) { flipBtn.style.opacity = '1'; flipBtn.style.pointerEvents = ''; }
+    await sleep(800);
+    stopCamera();
+
+    if (totalShots > outputPhotos) {
+        showPhotoSelectScreen();
+    } else {
+        await generateAndShowResult();
+    }
+}
+
+// BUG FIX: photoOrient was declared but NEVER used here — always captured 4:3 regardless of setting
+function capturePhoto(idx) {
+    return new Promise(resolve => {
+        const video = document.getElementById('camera-video');
+        const vw = video.videoWidth, vh = video.videoHeight;
+        if (!vw || !vh) { resolve(); return; }
+
+        // photoOrient 에 따라 크롭 비율 결정
+        const targetRatio = (photoOrient === 'portrait') ? (3 / 4) : (4 / 3);
+        const videoRatio  = vw / vh;
+        let sx, sy, sw, sh;
+        if (videoRatio > targetRatio) {
+            // 비디오가 더 넓음 → 좌우를 자름
+            sh = vh; sw = vh * targetRatio;
+            sy = 0;  sx = (vw - sw) / 2;
+        } else {
+            // 비디오가 더 좁음 → 위아래를 자름
+            sw = vw; sh = vw / targetRatio;
+            sx = 0;  sy = (vh - sh) / 2;
+        }
+        const outW = Math.round(sw), outH = Math.round(sh);
+        const c = document.createElement('canvas');
+        c.width = outW; c.height = outH;
+        const cx = c.getContext('2d');
+        if (facingMode === 'user') {
+            cx.translate(outW, 0); cx.scale(-1, 1);
+        }
+        cx.drawImage(video, sx, sy, sw, sh, 0, 0, outW, outH);
+        const img = new Image();
+        img.onload = () => { capturedPhotos[idx] = img; resolve(); };
+        img.src = c.toDataURL('image/jpeg', 0.92);
+    });
+}
+
+// ============================
+//  PHOTO SELECT SCREEN
+// ============================
+function showPhotoSelectScreen() {
+    allCapturedPhotos = [...capturedPhotos];
+    selectedPhotoIndices = [];
+    updatePhotoSelectCopy();
+    renderPhotoSelectGrid();
+    updateSelectButton();
+    showScreen('photo-select');
+}
+
+function renderPhotoSelectGrid() {
+    const grid = document.getElementById('photo-select-grid');
+    grid.innerHTML = '';
+    allCapturedPhotos.forEach((photo, idx) => {
+        const item = document.createElement('div');
+        item.className = 'photo-select-item';
+        item.id = 'psi-' + idx;
+        item.onclick = () => togglePhotoSelect(idx);
+
+        const dim = document.createElement('div');
+        dim.className = 'select-dim';
+        item.appendChild(dim);
+
+        if (photo) {
+            const img = document.createElement('img');
+            img.src = photo.src;
+            img.alt = 'photo' + (idx + 1);
+            item.appendChild(img);
+        }
+        grid.appendChild(item);
+    });
+}
+
+function togglePhotoSelect(idx) {
+    const required = getOutputPhotoCount();
+    const selIdx = selectedPhotoIndices.indexOf(idx);
+    if (selIdx >= 0) {
+        selectedPhotoIndices.splice(selIdx, 1);
+    } else {
+        if (selectedPhotoIndices.length >= required) {
+            if (navigator.vibrate) navigator.vibrate(60);
+            return;
+        }
+        selectedPhotoIndices.push(idx);
+    }
+    updateSelectUI();
+    updateSelectButton();
+}
+
+function updateSelectUI() {
+    allCapturedPhotos.forEach((_, idx) => {
+        const item = document.getElementById('psi-' + idx);
+        if (!item) return;
+        const old = item.querySelector('.select-badge');
+        if (old) old.remove();
+        const selIdx = selectedPhotoIndices.indexOf(idx);
+        if (selIdx >= 0) {
+            item.classList.add('selected');
+            const badge = document.createElement('div');
+            badge.className = 'select-badge';
+            badge.textContent = selIdx + 1;
+            item.appendChild(badge);
+        } else {
+            item.classList.remove('selected');
+        }
+    });
+    const n = selectedPhotoIndices.length;
+    document.getElementById('select-count-display').textContent = `${n}/${getOutputPhotoCount()} 선택`;
+}
+
+function updateSelectButton() {
+    const btn = document.getElementById('btn-make-strip');
+    const required = getOutputPhotoCount();
+    const n = selectedPhotoIndices.length;
+    if (n === required) { btn.disabled = false; btn.textContent = '✨ ' + appTitle + ' 만들기'; }
+    else if (n === 0)   { btn.disabled = true;  btn.textContent = `${required}장을 선택해주세요`; }
+    else                { btn.disabled = true;  btn.textContent = `${required - n}장 더 선택해주세요`; }
+}
+
+async function makeStripFromSelected() {
+    capturedPhotos = selectedPhotoIndices.map(i => allCapturedPhotos[i]);
+    await generateAndShowResult();
+}
+
+// ============================
+//  STRIP GENERATION
+// ============================
+async function generateAndShowResult() {
+    // BUG FIX: no loading feedback during generation — user thinks button didn't work
+    showScreen('result');
+    const img = document.getElementById('strip-preview-img');
+    img.src = '';
+    img.style.opacity = '0';
+    document.querySelector('.result-title').textContent = '생성 중... ⏳';
+
+    const canvas = await generateStripCanvas();
+    stripDataUrl = canvas.toDataURL('image/png');
+    img.src = stripDataUrl;
+    img.style.transition = 'opacity 0.4s';
+    img.style.opacity = '1';
+    document.querySelector('.result-title').textContent = '촬영 완료! 🎉';
+}
+
+async function generateStripCanvas() {
+    if (selectedLayout === 'grid') return await generateGridCanvas();
+    await document.fonts.ready;
+
+    // BUG FIX: photoOrient was ignored — always used 4:3 slots even for portrait photos
+    const isPortrait = (photoOrient === 'portrait');
+    const photoW = 420;
+    const photoH = isPortrait ? Math.round(photoW * 4 / 3) : Math.round(photoW * 3 / 4); // 560 or 315
+    const gap = 10, padX = 28, topH = 72, bottomH = 72;
+    const photoCount = STRIP_PHOTO_COUNT;
+    const W = photoW + 2 * padX;
+    const H = topH + photoCount * photoH + (photoCount - 1) * gap + bottomH;
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    const df = DEFAULT_FRAMES.find(f => f.id === selectedFrameId);
+    const cf = customFrames.find(f => f.id === selectedFrameId);
+    let textColor = '#333333', subTextColor = '#999999';
+
+    if (df) {
+        const grad = ctx.createLinearGradient(0, 0, 0, H);
+        grad.addColorStop(0, df.colors[0]); grad.addColorStop(1, df.colors[1]);
+        ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+        textColor = df.textColor; subTextColor = df.textColor;
+    } else if (cf) {
+        try { ctx.drawImage(await loadImage(cf.dataUrl), 0, 0, W, H); }
+        catch(e) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); }
+        textColor = '#ffffff'; subTextColor = '#ffffffbb';
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        ctx.fillRect(0, 0, W, topH);
+        ctx.fillRect(0, H - bottomH, W, bottomH);
+    } else {
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
+    }
+
+    // 사진 3장 — 세로로 쌓기 (photoOrient에 맞는 비율로)
+    for (let i = 0; i < photoCount; i++) {
+        const x = padX;
+        const y = topH + i * (photoH + gap);
+
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.15)'; ctx.shadowBlur = 14; ctx.shadowOffsetY = 4;
+        ctx.fillStyle = '#ffffff';
+        roundRect(ctx, x, y, photoW, photoH, 8); ctx.fill();
+        ctx.restore();
+
+        if (capturedPhotos[i]) {
+            ctx.save();
+            roundRect(ctx, x, y, photoW, photoH, 8); ctx.clip();
+            drawCover(ctx, capturedPhotos[i], x, y, photoW, photoH);
+            ctx.restore();
+        }
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1;
+        roundRect(ctx, x, y, photoW, photoH, 8); ctx.stroke();
+        ctx.restore();
+    }
+
+    // 타이틀 (상단 중앙)
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = textColor;
+    ctx.font = `900 30px "Noto Sans KR", sans-serif`;
+    ctx.fillText(appTitle, W / 2, topH / 2);
+
+    // 구분선
+    ctx.strokeStyle = textColor; ctx.globalAlpha = 0.15; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(W/2-44, topH-10); ctx.lineTo(W/2+44, topH-10); ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // 날짜 (하단 중앙) — BUG FIX: padY를 따로 쓰면서 bottomY가 어긋났던 것 수정
+    const now = new Date();
+    const ds = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
+    ctx.font = '400 16px "Noto Sans KR", sans-serif';
+    ctx.fillStyle = subTextColor; ctx.globalAlpha = 0.7;
+    ctx.fillText(ds, W / 2, H - bottomH / 2);
+    ctx.globalAlpha = 1;
+    return canvas;
+}
+
+async function generateGridCanvas() {
+    await document.fonts.ready;
+
+    // BUG FIX: photoOrient was ignored here too
+    const isPortrait = (photoOrient === 'portrait');
+    const photoW = isPortrait ? 204 : 272;
+    const photoH = isPortrait ? 272 : 204; // 3:4 or 4:3
+    const gapX = 14, gapY = 14, padX = 28, topH = 76, bottomH = 60;
+    const W = 2 * photoW + gapX + 2 * padX;
+    const H = topH + 2 * photoH + gapY + bottomH;
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    const df = DEFAULT_FRAMES.find(f => f.id === selectedFrameId);
+    const cf = customFrames.find(f => f.id === selectedFrameId);
+    let textColor = '#333333', subTextColor = '#999999';
+
+    if (df) {
+        const grad = ctx.createLinearGradient(0, 0, 0, H);
+        grad.addColorStop(0, df.colors[0]); grad.addColorStop(1, df.colors[1]);
+        ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+        textColor = df.textColor; subTextColor = df.textColor;
+    } else if (cf) {
+        try { ctx.drawImage(await loadImage(cf.dataUrl), 0, 0, W, H); }
+        catch(e) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); }
+        textColor = '#ffffff'; subTextColor = '#ffffffbb';
+        ctx.fillStyle = 'rgba(0,0,0,0.18)';
+        ctx.fillRect(0, 0, W, topH);
+        ctx.fillRect(0, H - bottomH, W, bottomH);
+    } else {
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
+    }
+
+    for (let i = 0; i < GRID_PHOTO_COUNT; i++) {
+        const col = i % 2, row = Math.floor(i / 2);
+        const x = padX + col * (photoW + gapX);
+        const y = topH + row * (photoH + gapY);
+
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.13)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 3;
+        ctx.fillStyle = '#ffffff';
+        roundRect(ctx, x, y, photoW, photoH, 8); ctx.fill();
+        ctx.restore();
+
+        if (capturedPhotos[i]) {
+            ctx.save();
+            roundRect(ctx, x, y, photoW, photoH, 8); ctx.clip();
+            drawCover(ctx, capturedPhotos[i], x, y, photoW, photoH); // ★ 4:3 크롭된 사진 → 꽉 채움
+            ctx.restore();
+        }
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1;
+        roundRect(ctx, x, y, photoW, photoH, 8); ctx.stroke();
+        ctx.restore();
+    }
+
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = textColor;
+    ctx.font = '900 32px "Noto Sans KR", sans-serif';
+    ctx.fillText(appTitle, W / 2, topH / 2 - 2);
+
+    ctx.strokeStyle = textColor; ctx.globalAlpha = 0.15; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(W/2-44, topH-12); ctx.lineTo(W/2+44, topH-12); ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    const now = new Date();
+    const ds = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
+    ctx.font = '400 16px "Noto Sans KR", sans-serif';
+    ctx.fillStyle = subTextColor; ctx.globalAlpha = 0.7;
+    ctx.fillText(ds, W / 2, H - bottomH / 2);
+    ctx.globalAlpha = 1;
+    return canvas;
+}
+
+// ============================
+//  DOWNLOAD & PRINT
+// ============================
+function downloadStrip() {
+    if (!stripDataUrl) return;
+    const ts = new Date().toISOString().slice(0,19).replace(/[T:-]/g,'');
+    const a = document.createElement('a');
+    a.download = `${safeFileName(appTitle)}_${ts}.png`; a.href = stripDataUrl;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+function printStrip() {
+    if (!stripDataUrl) return;
+    const win = window.open('', '_blank');
+    if (!win) { alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.'); return; }
+    win.document.write(`<!DOCTYPE html><html><head><title>${escapeHtml(appTitle)} 프린트</title>
+    <style>@page{margin:10mm;}body{margin:0;display:flex;justify-content:center;}img{max-width:100%;max-height:95vh;}</style>
+    </head><body><img src="${stripDataUrl}" onload="setTimeout(()=>{window.print();},500);"></body></html>`);
+    win.document.close();
+}
+
+function retakePhotos() {
+    capturedPhotos = new Array(getActualShootCount()).fill(null);
+    allCapturedPhotos = []; selectedPhotoIndices = [];
+    currentShot = 0; stripDataUrl = null;
+    goToCamera();
+}
+
+// ============================
+//  ADMIN — SHOOTING SETTINGS
+// ============================
+function setTimer(secs) {
+    secs = parseInt(secs, 10);
+    if (!Number.isFinite(secs) || secs < 1 || secs > 30) return;
+    timerSeconds = secs;
+    localStorage.setItem('timerSeconds', secs);
+    updateTimerUI();
+    showMsg('timer-save-msg', `✅ ${secs}초로 설정되었습니다!`);
+}
+
+function setTimerCustom() {
+    const val = parseInt(document.getElementById('timer-custom').value);
+    if (!val || val < 1 || val > 30) { alert('1~30 사이의 숫자를 입력해주세요'); return; }
+    setTimer(val);
+    document.getElementById('timer-custom').value = '';
+}
+
+function setShootCount(n) {
+    n = parseInt(n, 10);
+    if (![3, 4, 6, 8, 10].includes(n)) return;
+    shootCount = n;
+    localStorage.setItem('shootCount', n);
+    updateCountUI();
+    showMsg('count-save-msg', `✅ ${n}장으로 설정되었습니다!`);
+}
+
+function updateTimerUI() {
+    document.querySelectorAll('.timer-btn').forEach(btn => {
+        btn.classList.toggle('active', parseInt(btn.dataset.secs) === timerSeconds);
+    });
+}
+
+function updateCountUI() {
+    document.querySelectorAll('.count-btn').forEach(btn => {
+        btn.classList.toggle('active', parseInt(btn.dataset.count) === shootCount);
+    });
+}
+
+// ============================
+//  ADMIN — GENERAL
+// ============================
+function showAdminLogin() {
+    document.getElementById('admin-pw-input').value = '';
+    document.getElementById('admin-login-error').style.display = 'none';
+    showScreen('admin-login');
+    setTimeout(() => document.getElementById('admin-pw-input').focus(), 300);
+}
+
+function adminLogin() {
+    if (document.getElementById('admin-pw-input').value === adminPw) {
+        document.getElementById('admin-title-input').value = appTitle;
+        renderAdminFrameList();
+        updateStorageInfo();
+        updateTimerUI();
+        updateCountUI();
+        showScreen('admin');
+    } else {
+        const errEl = document.getElementById('admin-login-error');
+        errEl.style.display = 'block'; errEl.textContent = '비밀번호가 틀렸습니다';
+        document.getElementById('admin-pw-input').value = '';
+        document.getElementById('admin-pw-input').focus();
+    }
+}
+
+async function handleFrameUpload(event) {
+    const files = event.target.files;
+    if (!files || !files.length) return;
+    for (const file of files) {
+        if (!file.type.startsWith('image/')) continue;
+        let dataUrl;
+        try {
+            dataUrl = await resizeImage(file, 1000);
+        } catch(e) { alert('이미지 처리 중 오류가 발생했습니다: ' + file.name); continue; }
+        if (!isSafeFrameDataUrl(dataUrl)) {
+            alert('지원하지 않는 이미지 형식입니다: ' + file.name);
+            continue;
+        }
+        const newFrame = { id: 'cf-' + Date.now() + '-' + Math.random().toString(36).substr(2,6),
+                           name: sanitizePlainText(file.name.replace(/\.[^.]+$/, ''), 20) || '추가 프레임', dataUrl };
+        customFrames.push(newFrame);
+        try {
+            localStorage.setItem('customFrames', JSON.stringify(customFrames));
+        } catch(e) {
+            // 저장 실패 시 메모리에서도 즉시 제거해 불일치 방지
+            customFrames.pop();
+            alert('저장 공간이 부족합니다! "' + file.name + '" 파일을 추가할 수 없습니다.');
+        }
+    }
+    renderAdminFrameList(); updateStorageInfo(); event.target.value = '';
+}
+
+function deleteFrame(id) {
+    if (!confirm('이 프레임을 삭제하시겠습니까?')) return;
+    customFrames = customFrames.filter(f => f.id !== id);
+    try { localStorage.setItem('customFrames', JSON.stringify(customFrames)); } catch(e) {}
+    renderAdminFrameList(); updateStorageInfo();
+}
+
+function renderAdminFrameList() {
+    const container = document.getElementById('admin-frame-list');
+    container.innerHTML = '';
+    if (customFrames.length === 0) {
+        container.innerHTML = '<div class="text-center py-6 text-gray-300 text-sm">업로드된 프레임이 없습니다<br>위 버튼으로 이미지를 추가해보세요</div>';
+        return;
+    }
+    customFrames.forEach(f => {
+        const item = document.createElement('div');
+        item.className = 'frame-admin-item';
+
+        const img = document.createElement('img');
+        img.src = f.dataUrl;
+        img.alt = f.name;
+        item.appendChild(img);
+
+        const info = document.createElement('div');
+        info.className = 'flex-1 min-w-0';
+        const name = document.createElement('div');
+        name.className = 'font-semibold text-sm text-gray-700 truncate';
+        name.textContent = f.name;
+        const size = document.createElement('div');
+        size.className = 'text-xs text-gray-400';
+        size.textContent = formatBytes(f.dataUrl.length);
+        info.appendChild(name);
+        info.appendChild(size);
+        item.appendChild(info);
+
+        const del = document.createElement('button');
+        del.className = 'text-red-400 hover:text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg text-sm font-medium transition-all flex-shrink-0';
+        del.textContent = '삭제';
+        del.onclick = () => deleteFrame(f.id);
+        item.appendChild(del);
+
+        container.appendChild(item);
+    });
+}
+
+function updateStorageInfo() {
+    const el = document.getElementById('storage-info');
+    try { el.textContent = `저장 공간 사용: ${formatBytes(new Blob(Object.values(localStorage)).size)}`; }
+    catch(e) { el.textContent = ''; }
+}
+
+function changePassword() {
+    const newPw = document.getElementById('admin-new-pw').value.trim();
+    if (!newPw) { alert('새 비밀번호를 입력해주세요'); return; }
+    if (newPw.length < 2) { alert('비밀번호는 2자 이상이어야 합니다'); return; }
+    adminPw = newPw;
+    localStorage.setItem('adminPw', adminPw);
+    document.getElementById('admin-new-pw').value = '';
+    showMsg('pw-change-msg', '✅ 비밀번호가 변경되었습니다!');
+}
+
+function resetAll() {
+    if (!confirm('정말로 모든 설정을 초기화하시겠습니까?\n\n• 메인 타이틀 → "Grace Frame"\n• 모든 업로드 프레임 삭제\n• 비밀번호 → "0000"\n• 타이머 → 3초\n• 촬영 장수 → 3장')) return;
+    if (!confirm('⚠️ 이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?')) return;
+
+    ['appTitle','customFrames','adminPw','timerSeconds','shootCount'].forEach(k => localStorage.removeItem(k));
+    appTitle = 'Grace Frame'; customFrames = []; adminPw = '0000'; timerSeconds = 3; shootCount = 3;
+
+    refreshTitle(); renderAdminFrameList(); updateStorageInfo(); updateTimerUI(); updateCountUI();
+    alert('초기화가 완료되었습니다!');
+}
+
+// ============================
+//  INITIALIZATION
+// ============================
+function init() {
+    refreshTitle();
+    document.addEventListener('touchstart', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+    document.addEventListener('keydown', e => {
+        if (e.key !== 'Escape') return;
+        const screens = ['screen-result','screen-photo-select','screen-camera','screen-frames','screen-admin','screen-admin-login'];
+        for (const s of screens) {
+            const el = document.getElementById(s);
+            if (el && el.classList.contains('active')) {
+                if (s === 'screen-camera' && isCapturing) return;
+                goHome(); return;
+            }
+        }
+    });
+}
+
+init();
+</script>
+</body>
+</html>
