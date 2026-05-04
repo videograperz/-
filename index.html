@@ -131,35 +131,32 @@
         #screen-result { overflow: hidden !important; }
 
         #result-inner {
-            position: absolute; inset: 0;
+            position: absolute; inset: 0;          /* 뷰포트 꽉 채우기 */
             display: flex; flex-direction: column;
-            align-items: center;
+            align-items: center; justify-content: flex-start;
             padding: 12px 12px 8px;
             overflow: hidden;
-            box-sizing: border-box;
         }
         #strip-preview-wrap {
-            flex: 1 1 0px;   /* 0px 명시로 브라우저가 확정 높이로 인식 */
-            min-height: 0;
-            overflow: hidden; /* 이게 핵심 — 자식의 max-height:100% 기준이 됨 */
+            flex: 1 1 0;          /* 남은 공간 전부 차지 */
+            min-height: 0;        /* flex shrink 허용 */
             display: flex;
             align-items: center;
             justify-content: center;
             width: 100%;
-            margin-bottom: 8px;
         }
-        /* width/height 100% + object-fit:contain → 절대 잘리지 않음 */
         #strip-preview-img {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
+            max-width: 100%;
+            max-height: 100%;    /* wrap 높이 초과 금지 */
+            width: auto;
+            height: auto;
             display: block;
             border-radius: 8px;
             box-shadow: 0 8px 32px rgba(0,0,0,0.18);
         }
         .result-title {
             font-size: 16px; font-weight: 700; color: #4b5563;
-            margin-bottom: 6px; flex-shrink: 0;
+            margin-bottom: 8px; flex-shrink: 0;
         }
 
         .layout-card {
@@ -209,8 +206,7 @@
         .photo-select-item {
             position: relative; border-radius: 14px; overflow: hidden;
             border: 3px solid #e5e7eb; cursor: pointer; transition: all 0.2s;
-            background: #1a1a1a;
-            /* aspect-ratio는 JS로 동적 설정 — photoOrient에 따라 다름 */
+            background: #1a1a1a; aspect-ratio: 4 / 3;
         }
         .photo-select-item:active { transform: scale(0.97); }
         .photo-select-item.selected {
@@ -328,7 +324,7 @@
         <span id="select-count-display" class="text-sm font-bold" style="color:#a855f7">0/4 선택</span>
     </div>
     <p class="text-sm text-gray-500 text-center pt-3 px-4 pb-1 flex-shrink-0">
-        Grace Frame에 넣을 사진 <strong style="color:#a855f7">4장</strong>을 선택하세요<br>
+        <span id="photo-select-desc"></span> <strong style="color:#a855f7">4장</strong>을 선택하세요<br>
         <span class="text-xs text-gray-400">선택한 순서대로 배치됩니다</span>
     </p>
     <div class="flex-1 overflow-y-auto">
@@ -345,7 +341,7 @@
 <!-- ==================== RESULT SCREEN ==================== -->
 <div id="screen-result" class="screen gradient-bg">
     <div id="result-inner">
-        <p id="result-title" class="result-title">촬영 완료! 🎉</p>
+        <p class="result-title">촬영 완료! 🎉</p>
         <div id="strip-preview-wrap">
             <img id="strip-preview-img" src="" alt="포토스트립">
         </div>
@@ -493,7 +489,6 @@ let isCapturing  = false;
 let stripDataUrl = null;
 let facingMode   = 'user';       // 'user'=전면, 'environment'=후면
 let photoOrient  = 'landscape';  // 'landscape'=가로(4:3), 'portrait'=세로(3:4)
-let captureAborted = false;      // BUG2: goHome 시 async 루프 중단용 플래그
 
 const DEFAULT_FRAMES = [
     { id: 'df-white',    name: '클래식 화이트', colors: ['#ffffff','#f5f5f5'],    textColor: '#333' },
@@ -579,7 +574,7 @@ function triggerFlash() {
 }
 
 function resizeImage(file, maxDim) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (e) => {
             const img = new Image();
@@ -594,8 +589,10 @@ function resizeImage(file, maxDim) {
                 c.getContext('2d').drawImage(img, 0, 0, w, h);
                 resolve(c.toDataURL('image/jpeg', 0.75));
             };
+            img.onerror = () => reject(new Error('이미지 로드 실패: ' + file.name));
             img.src = e.target.result;
         };
+        reader.onerror = () => reject(new Error('파일 읽기 실패: ' + file.name));
         reader.readAsDataURL(file);
     });
 }
@@ -625,9 +622,8 @@ function showScreen(id) {
 }
 
 function goHome() {
-    captureAborted = true;   // 진행 중인 촬영 루프 중단
-    isCapturing = false;
     stopCamera();
+    isCapturing = false;
     showScreen('welcome');
 }
 
@@ -639,6 +635,12 @@ function refreshTitle() {
     const inp = document.getElementById('admin-title-input');
     if (inp) inp.value = appTitle;
     document.title = appTitle;
+    // 사진 선택 화면 설명 텍스트
+    const desc = document.getElementById('photo-select-desc');
+    if (desc) desc.textContent = appTitle + '에 넣을 사진';
+    // 스트립 만들기 버튼 (활성 상태일 때만)
+    const makeBtn = document.getElementById('btn-make-strip');
+    if (makeBtn && !makeBtn.disabled) makeBtn.textContent = '✨ ' + appTitle + ' 만들기';
 }
 
 function saveTitle() {
@@ -725,14 +727,7 @@ async function goToCamera() {
     showScreen('camera');
     capturedPhotos = new Array(shootCount).fill(null);
     currentShot = 0; stripDataUrl = null; isCapturing = false;
-    captureAborted = false;  // BUG2: 새 촬영 시작 전 플래그 초기화
     updateSlots();
-
-    // BUG3: orient 토글 UI를 현재 photoOrient 상태와 동기화
-    document.querySelectorAll('.orient-btn').forEach(b => b.classList.remove('active'));
-    const ob = document.getElementById('orient-' + photoOrient);
-    if (ob) ob.classList.add('active');
-
     const btn = document.getElementById('btn-start-capture');
     btn.style.display = 'block'; btn.disabled = true;
     document.getElementById('camera-status').textContent = '카메라 준비 중...';
@@ -783,10 +778,10 @@ function updateSlots() {
     const row = document.getElementById('photo-slots-row');
     if (!row) return;
 
+    // 화면 폭에 맞게 슬롯 크기 자동 계산
     const avail = Math.min(window.innerWidth, 480) - 24 - (N - 1) * 6;
     let w = Math.max(36, Math.min(68, Math.floor(avail / N)));
-    // BUG5: photoOrient에 따라 슬롯 높이 결정
-    const h = (photoOrient === 'portrait') ? Math.round(w * 4 / 3) : Math.round(w * 3 / 4);
+    const h = Math.round(w * 0.75);
 
     row.innerHTML = '';
     for (let i = 0; i < N; i++) {
@@ -799,7 +794,6 @@ function updateSlots() {
             slot.classList.add('captured');
             const img = document.createElement('img');
             img.src = capturedPhotos[i].src;
-            img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
             slot.appendChild(img);
         } else if (i === currentShot && isCapturing) {
             slot.classList.add('active');
@@ -825,40 +819,27 @@ function setOrient(orient) {
 async function startCapture() {
     if (isCapturing) return;
     isCapturing = true;
-    captureAborted = false;
     document.getElementById('btn-start-capture').style.display = 'none';
-
-    // BUG6: orient 토글 비활성화 (촬영 중 방향 변경 방지)
-    document.querySelectorAll('.orient-btn').forEach(b => { b.disabled = true; b.style.opacity = '0.4'; });
-
-    // BUG8: flip 버튼 비활성화
+    // BUG FIX: flip button should be visually disabled during capture
     const flipBtn = document.getElementById('btn-flip-camera');
     if (flipBtn) { flipBtn.style.opacity = '0.3'; flipBtn.style.pointerEvents = 'none'; }
 
     for (let i = 0; i < shootCount; i++) {
-        // BUG2: 루프 매 반복마다 중단 여부 확인
-        if (captureAborted) return;
-
         currentShot = i;
         updateSlots();
         document.getElementById('camera-status').textContent = `${i + 1}번째 사진 준비! 📸`;
         await sleep(1200);
-        if (captureAborted) return;
 
         const cdEl = document.getElementById('countdown-display');
         for (let c = timerSeconds; c >= 1; c--) {
-            if (captureAborted) { cdEl.style.display = 'none'; return; }
             cdEl.style.display = 'flex';
             cdEl.innerHTML = `<span class="countdown-number">${c}</span>`;
             playBeep(c === 1 ? 1300 : 880, 200);
             await sleep(1000);
         }
         cdEl.style.display = 'none';
-        if (captureAborted) return;
 
         await capturePhoto(i);
-        if (captureAborted) return;
-
         triggerFlash();
         playBeep(1600, 100);
         await sleep(50);
@@ -869,17 +850,10 @@ async function startCapture() {
         if (i < shootCount - 1) await sleep(1800);
     }
 
-    if (captureAborted) return;
-
     document.getElementById('camera-status').textContent = '모든 사진 촬영 완료! 🎉';
     isCapturing = false;
-
-    // orient 토글 복원
-    document.querySelectorAll('.orient-btn').forEach(b => { b.disabled = false; b.style.opacity = ''; });
     if (flipBtn) { flipBtn.style.opacity = '1'; flipBtn.style.pointerEvents = ''; }
-
     await sleep(800);
-    if (captureAborted) return;
     stopCamera();
 
     if (shootCount > 4) {
@@ -929,6 +903,7 @@ function capturePhoto(idx) {
 function showPhotoSelectScreen() {
     allCapturedPhotos = [...capturedPhotos];
     selectedPhotoIndices = [];
+    document.getElementById('select-count-display').textContent = '0/4 선택';
     renderPhotoSelectGrid();
     updateSelectButton();
     showScreen('photo-select');
@@ -937,13 +912,10 @@ function showPhotoSelectScreen() {
 function renderPhotoSelectGrid() {
     const grid = document.getElementById('photo-select-grid');
     grid.innerHTML = '';
-    // BUG4: photoOrient에 맞는 aspect-ratio 설정
-    const ar = (photoOrient === 'portrait') ? '3 / 4' : '4 / 3';
     allCapturedPhotos.forEach((photo, idx) => {
         const item = document.createElement('div');
         item.className = 'photo-select-item';
         item.id = 'psi-' + idx;
-        item.style.aspectRatio = ar;
         item.onclick = () => togglePhotoSelect(idx);
 
         const dim = document.createElement('div');
@@ -999,7 +971,7 @@ function updateSelectUI() {
 function updateSelectButton() {
     const btn = document.getElementById('btn-make-strip');
     const n = selectedPhotoIndices.length;
-    if (n === 4)     { btn.disabled = false; btn.textContent = '✨ Grace Frame 만들기'; }
+    if (n === 4)     { btn.disabled = false; btn.textContent = '✨ ' + appTitle + ' 만들기'; }
     else if (n === 0){ btn.disabled = true;  btn.textContent = '4장을 선택해주세요'; }
     else             { btn.disabled = true;  btn.textContent = `${4 - n}장 더 선택해주세요`; }
 }
@@ -1013,19 +985,19 @@ async function makeStripFromSelected() {
 //  STRIP GENERATION
 // ============================
 async function generateAndShowResult() {
+    // BUG FIX: no loading feedback during generation — user thinks button didn't work
     showScreen('result');
     const img = document.getElementById('strip-preview-img');
-    const titleEl = document.getElementById('result-title');
     img.src = '';
     img.style.opacity = '0';
-    if (titleEl) titleEl.textContent = '생성 중... ⏳';
+    document.querySelector('.result-title').textContent = '생성 중... ⏳';
 
     const canvas = await generateStripCanvas();
     stripDataUrl = canvas.toDataURL('image/png');
     img.src = stripDataUrl;
     img.style.transition = 'opacity 0.4s';
     img.style.opacity = '1';
-    if (titleEl) titleEl.textContent = '촬영 완료! 🎉';
+    document.querySelector('.result-title').textContent = '촬영 완료! 🎉';
 }
 
 async function generateStripCanvas() {
@@ -1126,7 +1098,7 @@ async function generateGridCanvas() {
     let textColor = '#333333', subTextColor = '#999999';
 
     if (df) {
-        const grad = ctx.createLinearGradient(0, 0, W * 0.3, H);
+        const grad = ctx.createLinearGradient(0, 0, 0, H);
         grad.addColorStop(0, df.colors[0]); grad.addColorStop(1, df.colors[1]);
         ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
         textColor = df.textColor; subTextColor = df.textColor;
@@ -1189,7 +1161,7 @@ function downloadStrip() {
     if (!stripDataUrl) return;
     const ts = new Date().toISOString().slice(0,19).replace(/[T:-]/g,'');
     const a = document.createElement('a');
-    a.download = `Grace Frame_${ts}.png`; a.href = stripDataUrl;
+    a.download = `${appTitle}_${ts}.png`; a.href = stripDataUrl;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
@@ -1197,7 +1169,7 @@ function printStrip() {
     if (!stripDataUrl) return;
     const win = window.open('', '_blank');
     if (!win) { alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.'); return; }
-    win.document.write(`<!DOCTYPE html><html><head><title>Grace Frame 프린트</title>
+    win.document.write(`<!DOCTYPE html><html><head><title>${appTitle} 프린트</title>
     <style>@page{margin:10mm;}body{margin:0;display:flex;justify-content:center;}img{max-width:100%;max-height:95vh;}</style>
     </head><body><img src="${stripDataUrl}" onload="setTimeout(()=>{window.print();},500);"></body></html>`);
     win.document.close();
@@ -1277,16 +1249,20 @@ async function handleFrameUpload(event) {
     if (!files || !files.length) return;
     for (const file of files) {
         if (!file.type.startsWith('image/')) continue;
+        let dataUrl;
         try {
-            const dataUrl = await resizeImage(file, 1000);
-            customFrames.push({ id: 'cf-' + Date.now() + '-' + Math.random().toString(36).substr(2,6),
-                                 name: file.name.replace(/\.[^.]+$/, '').substring(0, 20), dataUrl });
-        } catch(e) { alert('이미지 처리 중 오류가 발생했습니다: ' + file.name); }
-    }
-    try { localStorage.setItem('customFrames', JSON.stringify(customFrames)); }
-    catch(e) {
-        alert('저장 공간이 부족합니다!'); customFrames.pop();
-        try { localStorage.setItem('customFrames', JSON.stringify(customFrames)); } catch(e2) {}
+            dataUrl = await resizeImage(file, 1000);
+        } catch(e) { alert('이미지 처리 중 오류가 발생했습니다: ' + file.name); continue; }
+        const newFrame = { id: 'cf-' + Date.now() + '-' + Math.random().toString(36).substr(2,6),
+                           name: file.name.replace(/\.[^.]+$/, '').substring(0, 20), dataUrl };
+        customFrames.push(newFrame);
+        try {
+            localStorage.setItem('customFrames', JSON.stringify(customFrames));
+        } catch(e) {
+            // 저장 실패 시 메모리에서도 즉시 제거해 불일치 방지
+            customFrames.pop();
+            alert('저장 공간이 부족합니다! "' + file.name + '" 파일을 추가할 수 없습니다.');
+        }
     }
     renderAdminFrameList(); updateStorageInfo(); event.target.value = '';
 }
